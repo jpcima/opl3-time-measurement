@@ -1,7 +1,9 @@
-
 #include "nukedopl3_eg.h"
 #include <getopt.h>
 #include <iostream>
+#include <set>
+#include <limits>
+#include <cmath>
 
 Bit16s OPL3_EnvelopeCalcSin0(Bit16u phase, Bit16u envelope);
 
@@ -65,12 +67,148 @@ int tick(opl3_chip &chip)
 struct FILE_deleter { void operator()(FILE *x) { fclose(x); } };
 typedef std::unique_ptr<FILE, FILE_deleter> unique_FILE;
 
+static unique_FILE adsr_outputs[4];
+static const char *adsr_names[4] = {"attack", "decay", "sustain", "release"};
+static const char *adsr_filenames[4] = {"data/eg_attack.dat", "data/eg_decay.dat", "data/eg_sustain.dat", "data/eg_release.dat"};
+
+static unsigned effective_rate(unsigned rate, unsigned ksr, unsigned nts, unsigned fnum, unsigned block)
+{
+    unsigned effective_rate = 4 * rate;
+    if (!ksr)
+        effective_rate += block >> 1;
+    else
+        effective_rate += (block << 1) | ((fnum >> (9 - nts)) & 1);
+    return effective_rate;
+}
+
+static constexpr double attack_a = 1.149779557179130,
+                        attack_b = 1.189578077537087,
+                        attack_c = -1.771203939904738;
+
+static double estimate_attack(double t, const Eg_Parameters &egp, unsigned fnum, unsigned block)
+{
+    unsigned rate = egp.ar;
+    if (rate <= 0)
+        return std::numeric_limits<double>::infinity();
+    if (rate >= 15)
+        return 0;
+    // return 1.0 - std::exp(-2.5 * (1 << (rate - 1)) * t);
+    unsigned eff_rate = effective_rate(rate, egp.ksr, egp.nts, fnum, block);
+    // FIT : 1-exp(-a*b^(rate+c)*time)
+    return 1.0 - std::exp(-attack_a*std::pow(attack_b, eff_rate + attack_c) * t);
+}
+
+static double estimate_attack_time(double v, const Eg_Parameters &egp, unsigned fnum, unsigned block)
+{
+    if (v <= 0)
+        return 0;
+    unsigned rate = egp.ar;
+    unsigned eff_rate = effective_rate(rate, egp.ksr, egp.nts, fnum, block);
+    return std::log(1.0 - v) / (-attack_a * std::pow(attack_b, eff_rate + attack_c));
+}
+
+void compute_adsr(const Eg_Parameters &egp, unsigned fnum, unsigned block)
+{
+    opl3_chip chip;
+    init(chip, egp, fnum, block);
+
+    size_t adsr_phasecount[4] = {0, 0, 0, 0};
+    size_t adsr_phase_start[4] = {0, 0, 0, 0};
+    size_t adsr_phase_end[4] = {0, 0, 0, 0};
+    double adsr_phase_startval[4] = {0, 0, 0, 0};
+    double adsr_phase_endval[4] = {0, 0, 0, 0};
+    size_t sample_index = 0;
+
+    //
+    // size_t sample_interval = 512;
+    // size_t sample_begin_at = 2;
+    size_t sample_interval = 1;
+    size_t sample_begin_at = 0;
+
+    //
+    constexpr double sample_rate = 49716.0;
+    OPL3_EnvelopeKeyOn(&chip, egk_norm);
+    int eg_sample;
+    int eg_gen_old = -1;
+    int eg_gen = -1;
+    do {
+        eg_sample = tick(chip);
+        eg_gen_old = eg_gen;
+        eg_gen = chip.eg_gen;
+
+        if (!egp.sustained && eg_gen == envelope_gen_num_sustain)
+            eg_gen = envelope_gen_num_release;
+        double eg_value = (511 - eg_sample) / 512.0;
+
+        if (eg_gen < eg_gen_old)
+            throw std::logic_error("bad envelope progression");
+
+        for (int i = std::max(0, eg_gen_old); i < eg_gen; ++i) {
+            adsr_phase_end[i] = sample_index;
+            adsr_phase_endval[i] = eg_value;
+        }
+        for (int i = eg_gen_old + 1; i <= eg_gen; ++i) {
+            adsr_phase_start[i] = sample_index;
+            adsr_phase_startval[i] = eg_value;
+        }
+
+        ++adsr_phasecount[eg_gen];
+        // fprintf(stderr, "i=%zu eg=%d sample=%d\n", i, eg_gen, eg_sample);
+
+        bool sample_use = true;
+        if (0) {
+            sample_use = (sample_index >= sample_begin_at) &&
+                ((sample_index - sample_begin_at) % sample_interval == 0);
+        }
+
+        if (sample_use) {
+            FILE *output = adsr_outputs[eg_gen].get();
+            double t = sample_index / sample_rate;
+            fprintf(output, "%f %f", t, eg_value);
+            if (1) {
+                switch (eg_gen) {
+                case envelope_gen_num_attack: {
+                    // fprintf(output, " %d", egp.ar); break;
+                    unsigned eff = effective_rate(egp.ar, egp.ksr, egp.nts, fnum, block);
+                    fprintf(output, " %u", eff); break;
+                }
+                case envelope_gen_num_decay:
+                    fprintf(output, " %d", egp.dr); break;
+                case envelope_gen_num_sustain:
+                    fprintf(output, " %d", egp.sl); break;
+                case envelope_gen_num_release:
+                    fprintf(output, " %d", egp.rr); break;
+                }
+            }
+            if (1) {
+                if (eg_gen == envelope_gen_num_attack)
+                    fprintf(output, " %f", estimate_attack(t, egp, fnum, block));
+            }
+            fputc('\n', output);
+        }
+
+        ++sample_index;
+    } while (eg_gen < envelope_gen_num_release || 511 - eg_sample > 0);
+    adsr_phase_end[envelope_gen_num_release] = sample_index;
+    adsr_phase_endval[envelope_gen_num_release] = 0;
+
+    for (unsigned i = 0; i < 4; ++i) {
+        double dt = adsr_phasecount[i] / sample_rate;
+        double t1 = adsr_phase_start[i] / sample_rate;
+        double t2 = adsr_phase_end[i] / sample_rate;
+        double y1 = adsr_phase_startval[i];
+        double y2 = adsr_phase_endval[i];
+        fprintf(stderr, "%s time=%f start=%f@%f end=%f@%f\n",
+               adsr_names[i], dt, t1, y1, t2, y2);
+    }
+}
+
 int main(int argc, char *argv[])
 {
     Eg_Parameters egp;
 
-    int fnum = 512;
-    int block = 4;
+    unsigned fnum = 512;
+    unsigned block = 4;
 
     static struct option long_options[] = {
         {"attack", required_argument, nullptr, 'a'},
@@ -145,11 +283,11 @@ int main(int argc, char *argv[])
         fprintf(stderr, "invalid ksl value (0-3)\n");
         return 1;
     }
-    if (fnum < 0 || fnum > 1023) {
+    if (fnum > 1023) {
         fprintf(stderr, "invalid fnum value (0-1023)\n");
         return 1;
     }
-    if (block < 0 || block > 7) {
+    if (block > 7) {
         fprintf(stderr, "invalid block value (0-7)\n");
         return 1;
     }
@@ -159,13 +297,6 @@ int main(int argc, char *argv[])
     std::cerr << "--------------------------\n";
 
     //
-    opl3_chip chip;
-    init(chip, egp, fnum, block);
-
-    unique_FILE adsr_outputs[4];
-    const char *adsr_names[4] = {"attack", "decay", "sustain", "release"};
-    const char *adsr_filenames[4] = {"data/eg_attack.dat", "data/eg_decay.dat", "data/eg_sustain.dat", "data/eg_release.dat"};
-
     for (unsigned i = 0; i < 4; ++i) {
         adsr_outputs[i].reset(fopen(adsr_filenames[i], "w"));
         if (!adsr_outputs[i]) {
@@ -174,49 +305,34 @@ int main(int argc, char *argv[])
         }
     }
 
-    size_t adsr_phasecount[4] = {0, 0, 0, 0};
-    size_t adsr_phase_start[4] = {0, 0, 0, 0};
-    size_t adsr_phase_end[4] = {0, 0, 0, 0};
-    double adsr_phase_startval[4] = {0, 0, 0, 0};
-    double adsr_phase_endval[4] = {0, 0, 0, 0};
-    size_t sample_index = 0;
+    //
+
+    if(1)
+        compute_adsr(egp, fnum, block);
+    else {
+        // experiment
+        std::set<int> rates;
+        for (int block = 0; block < 7; ++block) {
+            for (int ksr : {0, 1}) {
+                for (int nts : {0, 1}) {
+                    for (int fnum : {(1<<7), (1<<8)}) {
+                        for (int ar = 1; ar < 16; ++ar) {
+                            unsigned eff = effective_rate(ar, ksr, nts, fnum, block);
+                            if (!rates.insert(eff).second)
+                                continue;
+                            fprintf(stderr, "--- Rate %u\n", eff);
+                            egp.ksr = ksr;
+                            egp.nts = nts;
+                            egp.ar = ar;
+                            compute_adsr(egp, fnum, block);
+                        }
+                    }
+                }
+            }
+        }
+    }
 
     //
-    constexpr double sample_rate = 49716.0;
-    OPL3_EnvelopeKeyOn(&chip, egk_norm);
-    int eg_sample;
-    int eg_gen_old = -1;
-    int eg_gen = -1;
-    do {
-        eg_sample = tick(chip);
-        eg_gen_old = eg_gen;
-        eg_gen = chip.eg_gen;
-
-        if (!egp.sustained && eg_gen == envelope_gen_num_sustain)
-            eg_gen = envelope_gen_num_release;
-        double eg_value = (511 - eg_sample) / 512.0;
-
-        if (eg_gen < eg_gen_old)
-            throw std::logic_error("bad envelope progression");
-
-        for (int i = std::max(0, eg_gen_old); i < eg_gen; ++i) {
-            adsr_phase_end[i] = sample_index;
-            adsr_phase_endval[i] = eg_value;
-        }
-        for (int i = eg_gen_old + 1; i <= eg_gen; ++i) {
-            adsr_phase_start[i] = sample_index;
-            adsr_phase_startval[i] = eg_value;
-        }
-
-        ++adsr_phasecount[eg_gen];
-        // fprintf(stderr, "i=%zu eg=%d sample=%d\n", i, eg_gen, eg_sample);
-
-        fprintf(adsr_outputs[eg_gen].get(), "%f %f\n", sample_index / sample_rate, eg_value);
-        ++sample_index;
-    } while (eg_gen < envelope_gen_num_release || 511 - eg_sample > 0);
-    adsr_phase_end[envelope_gen_num_release] = sample_index;
-    adsr_phase_endval[envelope_gen_num_release] = 0;
-
     for (unsigned i = 0; i < 4; ++i) {
         if (fflush(adsr_outputs[i].get()) != 0) {
             fprintf(stderr, "error writing file\n");
@@ -224,19 +340,11 @@ int main(int argc, char *argv[])
         }
     }
 
-    for (unsigned i = 0; i < 4; ++i) {
-        double dt = adsr_phasecount[i] / sample_rate;
-        double t1 = adsr_phase_start[i] / sample_rate;
-        double t2 = adsr_phase_end[i] / sample_rate;
-        double y1 = adsr_phase_startval[i];
-        double y2 = adsr_phase_endval[i];
-        printf("%s time=%f start=%f@%f end=%f@%f\n",
-               adsr_names[i], dt, t1, y1, t2, y2);
-    }
-
-    if (system("gnuplot data/eg.gp") != 0) {
-        fprintf(stderr, "error starting gnuplot\n");
-        return 1;
+    if (0) {
+        if (system("gnuplot data/eg.gp") != 0) {
+            fprintf(stderr, "error starting gnuplot\n");
+            return 1;
+        }
     }
 
     return 0;

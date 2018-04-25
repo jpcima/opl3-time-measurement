@@ -1,0 +1,19 @@
+a=1.149779557179130
+b=1.189578077537087
+c=-1.771203939904738
+
+x: Time
+y: Effective rate: 4 * R + DeltaR
+
+General model:
+     f(x,y) = 1-exp(-a*b^(y+c)*x)
+Coefficients (with 95% confidence bounds):
+       a =        1.15  (-2870, 2873)
+       b =        1.19  (1.19, 1.19)
+       c =      -1.771  (-1.439e+04, 1.439e+04)
+
+Goodness of fit:
+  SSE: 247
+  R-square: 0.9956
+  Adjusted R-square: 0.9956
+  RMSE: 0.01699
