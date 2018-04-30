@@ -90,6 +90,9 @@ enum envelope_gen_num
     envelope_gen_num_release = 3
 };
 
+extern const Bit8u kslrom[16];
+extern const Bit8u kslshift[4];
+
 void OPL3_EnvelopeUpdateKSL(opl3_chip *chip);
 void OPL3_EnvelopeCalc(opl3_chip *chip);
 void OPL3_EnvelopeKeyOn(opl3_chip *chip, Bit8u type);

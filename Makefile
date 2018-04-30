@@ -1,17 +1,22 @@
-
 CXX = clang++
 CXXFLAGS = -Wall -O2 -g -fsanitize=address
 LDFLAGS = -fsanitize=address
 
-CXX_OBJS = measure.o nukedopl3_eg.o
+MEASURER_CXX_OBJS = measure.o nukedopl3_eg.o
+WAVES_CXX_OBJS = waves.o opl3_waves.o envelope.o
 
-all: measurer
+all: measurer waves
 
 clean:
-	rm -f measurer $(CXX_OBJS)
+	rm -f \
+	    measurer $(MEASURER_CXX_OBJS) \
+	    waves $(WAVES_CXX_OBJS)
 
 .cc.o:
 	$(CXX) $(CXXFLAGS) -c -o $@ $<
 
-measurer: $(CXX_OBJS)
+measurer: $(MEASURER_CXX_OBJS)
+	$(CXX) -o $@ $^ $(LDFLAGS)
+
+waves: $(WAVES_CXX_OBJS)
 	$(CXX) -o $@ $^ $(LDFLAGS)

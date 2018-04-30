@@ -113,11 +113,11 @@ static const Bit16u exprom[256] = {
  * ksl table
  */
 
-static const Bit8u kslrom[16] = {
+const Bit8u kslrom[16] = {
     0, 32, 40, 45, 48, 51, 53, 55, 56, 58, 59, 60, 61, 62, 63, 64
 };
 
-static const Bit8u kslshift[4] = {
+const Bit8u kslshift[4] = {
     8, 1, 2, 0
 };
 

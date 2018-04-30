@@ -87,19 +87,26 @@ static constexpr double attack_a = 1.149779557179130,
 
 static double estimate_attack(double t, const Eg_Parameters &egp, unsigned fnum, unsigned block)
 {
+    double tlv = (egp.tl << 2) / 512.0;
+    double kslv = (((kslrom[fnum >> 6] << 2) - ((8 - block) << 5)) >> kslshift[egp.ksl]) / 512.0;
     unsigned rate = egp.ar;
+    double value;
     if (rate <= 0)
-        return std::numeric_limits<double>::infinity();
-    if (rate >= 15)
-        return 0;
-    // return 1.0 - std::exp(-2.5 * (1 << (rate - 1)) * t);
-    unsigned eff_rate = effective_rate(rate, egp.ksr, egp.nts, fnum, block);
-    // FIT : 1-exp(-a*b^(rate+c)*time)
-    return 1.0 - std::exp(-attack_a*std::pow(attack_b, eff_rate + attack_c) * t);
+        value = 0;
+    else if (rate >= 15)
+        value = 1;
+    else {
+        unsigned eff_rate = effective_rate(rate, egp.ksr, egp.nts, fnum, block);
+        value = std::exp(-attack_a*std::pow(attack_b, eff_rate + attack_c) * t);
+    }
+    return value - tlv - kslv;
 }
 
 static double estimate_attack_time(double v, const Eg_Parameters &egp, unsigned fnum, unsigned block)
 {
+    double tlv = (egp.tl << 2) / 512.0;
+    double kslv = (((kslrom[fnum >> 6] << 2) - ((8 - block) << 5)) >> kslshift[egp.ksl]) / 512.0;
+    v = v + tlv + kslv;
     if (v <= 0)
         return 0;
     unsigned rate = egp.ar;
