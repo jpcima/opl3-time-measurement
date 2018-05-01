@@ -1,0 +1,342 @@
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% Journal Article
+% LaTeX Template
+% Version 1.4 (15/5/16)
+%
+% This template has been downloaded from:
+% http://www.LaTeXTemplates.com
+%
+% Original author:
+% Frits Wenneker (http://www.howtotex.com) with extensive modifications by
+% Vel (vel@LaTeXTemplates.com)
+%
+% License:
+% CC BY-NC-SA 3.0 (http://creativecommons.org/licenses/by-nc-sa/3.0/)
+%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+%----------------------------------------------------------------------------------------
+%	PACKAGES AND OTHER DOCUMENT CONFIGURATIONS
+%----------------------------------------------------------------------------------------
+
+\documentclass[twoside,twocolumn]{article}
+
+\usepackage{blindtext} % Package to generate dummy text throughout this template
+
+\usepackage[sc]{mathpazo} % Use the Palatino font
+\usepackage[T1]{fontenc} % Use 8-bit encoding that has 256 glyphs
+\usepackage[utf8]{inputenc}
+\linespread{1.05} % Line spacing - Palatino needs more space between lines
+\usepackage{microtype} % Slightly tweak font spacing for aesthetics
+
+\usepackage[english]{babel} % Language hyphenation and typographical rules
+
+\usepackage[hmarginratio=1:1,top=32mm,columnsep=20pt]{geometry} % Document margins
+\usepackage[hang, small,labelfont=bf,up,textfont=it,up]{caption} % Custom captions under/above floats in tables or figures
+\usepackage{booktabs} % Horizontal rules in tables
+
+\usepackage{lettrine} % The lettrine is the first enlarged letter at the beginning of the text
+
+\usepackage{enumitem} % Customized lists
+\setlist[itemize]{noitemsep} % Make itemize lists more compact
+
+\usepackage{abstract} % Allows abstract customization
+\renewcommand{\abstractnamefont}{\normalfont\bfseries} % Set the "Abstract" text to bold
+\renewcommand{\abstracttextfont}{\normalfont\small\itshape} % Set the abstract itself to small italic text
+
+\usepackage{titlesec} % Allows customization of titles
+\renewcommand\thesection{\Roman{section}} % Roman numerals for the sections
+\renewcommand\thesubsection{\roman{subsection}} % roman numerals for subsections
+\titleformat{\section}[block]{\large\scshape\centering}{\thesection.}{1em}{} % Change the look of the section titles
+\titleformat{\subsection}[block]{\large}{\thesubsection.}{1em}{} % Change the look of the section titles
+
+% \usepackage{fancyhdr} % Headers and footers
+% \pagestyle{fancy} % All pages have headers and footers
+% \fancyhead{} % Blank out the default header
+% \fancyfoot{} % Blank out the default footer
+% \fancyhead[C]{Running title $\bullet$ May 2016 $\bullet$ Vol. XXI, No. 1} % Custom header text
+% \fancyfoot[RO,LE]{\thepage} % Custom footer text
+
+\usepackage{titling} % Customizing the title section
+
+\usepackage{hyperref} % For hyperlinks in the PDF
+
+\usepackage{listings}
+\usepackage{amsmath}
+
+%----------------------------------------------------------------------------------------
+%	TITLE SECTION
+%----------------------------------------------------------------------------------------
+
+\setlength{\droptitle}{-4\baselineskip} % Move the title up
+
+\pretitle{\begin{center}\Huge\bfseries} % Article title formatting
+\posttitle{\end{center}} % Article title closing formatting
+\title{OPL3 envelope analysis} % Article title
+\author{%
+\textsc{Jean Pierre Cimalando}\thanks{} \\[1ex] % Your name
+%\normalsize University of California \\ % Your institution
+\normalsize \href{mailto:jp-dev@inbox.ru}{jp-dev@inbox.ru} % Your email address
+%\and % Uncomment if 2 authors are required, duplicate these 4 lines if more
+%\textsc{Jane Smith}\thanks{Corresponding author} \\[1ex] % Second author's name
+%\normalsize University of Utah \\ % Second author's institution
+%\normalsize \href{mailto:jane@smith.com}{jane@smith.com} % Second author's email address
+}
+\date{\today} % Leave empty to omit a date
+\renewcommand{\maketitlehookd}{%
+\begin{abstract}
+\noindent This document describes the results obtained in attempts to determine approximations
+for OPL3 envelope functions and their inverse, using a gray box experimental approach.
+\end{abstract}
+}
+
+%----------------------------------------------------------------------------------------
+
+\begin{document}
+
+% Print the title
+\maketitle
+
+%----------------------------------------------------------------------------------------
+%	ARTICLE CONTENTS
+%----------------------------------------------------------------------------------------
+
+\section{Introduction}
+
+\lettrine[nindent=0em,lines=3]{T} he goal of this envelope analysis effort is to provide
+good approximations of the key-on and key-off durations, in reasonable computation time.
+
+Existing software realize this measurement operation ahead of time (ADLMIDI). As it is a
+time consuming operation, it is not applicable to instruments which are modified in real time.
+
+Experimental measurements are realized on Nuked OPL 1.8, a high fidelity emulator of the
+Yamaha YMF262.
+
+%------------------------------------------------
+
+\section{Methods}
+
+\subsection{Waveforms}
+
+For the sake of level computations which will follow, we need a measurement of RMS levels
+of the internal waves.
+
+The internal waves, numbered 0—7, are computed in source code from \emph{EnvelopeCalcSin}
+collection of functions. Running these functions in phase range 0—1023, and with envelope
+0, produces a period of output normalized in the range $\pm 4096$.
+
+\begin{table}
+\begin{tabular}{llr}
+\toprule
+Waveform & RMS level \\
+\midrule
+Sine      & 0.705614      \\
+Half-Sine      & 0.384713      \\
+Abs-Sine      & 0.307053      \\
+Pulse-Sine      & 0.307053      \\
+Sine — even periods only      & 0.497982      \\
+Abs-Sine — even periods only      & 0.384261      \\
+Square      & 0.997680      \\
+Derived-Square      & 0.214195      \\
+\bottomrule
+\end{tabular}
+\caption{Waveform RMS levels}\label{tab:wave-rms}
+\end{table}
+
+The computed RMS levels are presented in~\ref{tab:wave-rms}.
+
+\subsection{Envelope generalities}\label{sec:env-generalities}
+
+For the envelope generator, we examine in detail the function \emph{EnvelopeCalc}.
+
+A previous study~\cite{opl3analyzed} has given us a formula to determine an effective
+envelope rate, based on several instrument parameters, and the frequency of the active note.
+
+\begin{itemize}
+  \item{ar, dr, rr:} rate of every non-stationary phase of the generator (0—15)
+  \item{sl:} sustain level (0—15)
+  \item{tl:} output attenuation (0—63)
+  \item{ksr:} envelope scaling (0—1)
+  \item{nts:} impact of note frequency on envelope scaling (0—1)
+  \item{eg:} whether the generator has a sustain phase (0—1)
+  \item{fnum, block:} representation of note frequency (0—1023, 0—7)
+\end{itemize}
+
+\begin{figure}
+\begin{lstlisting}
+unsigned eff_rate = 4 * ins_rate;
+if (!ksr)
+  eff_rate += block >> 1;
+else
+  eff_rate += (block << 1) |
+    ((fnum >> (9 - nts)) & 1);
+\end{lstlisting}
+\caption{Effective envelope rate}\label{code:eff-rate}
+\end{figure}
+
+For the approximations of the envelope I make, for the notion of \emph{rate} I will
+refer to the effective rate, as defined by the piece of C code~\ref{code:eff-rate}. The variable
+\emph{ins\_rate} is to substitute with either \emph{ar}, \emph{dr} or \emph{rr},
+depending on which phase of the envelope is under study.
+
+\begin{figure}
+\begin{lstlisting}
+int tlv = tl << 2;
+int kslv =
+  ((kslrom[fnum >> 6] << 2) -
+    ((8 - block) << 5)) >>
+  kslshift[ksl];
+\end{lstlisting}
+\caption{Envelope level modifiers}\label{code:level-modifiers}
+\end{figure}
+
+Finally the envelope has two level modifiers which subtract from the output level,
+depending on \emph{tl} and \emph{ksl}. These are determined by the C code~\ref{code:level-modifiers}.
+
+The envelope generator produces its output in 0—511, but reversed. I will consider the
+envelope output which is reversed back to normality and scaled to 0—1 range.
+
+\subsection{Attack phase}\label{sec:attack-phase}
+
+To examine a particular phase of envelope generation, I ran it under all possible
+effective rates, resulting from all combinations of parameter values and note frequencies.
+
+I wrote a program which took samples of envelope output, and was able to categorize the
+samples into their envelope phases, by examining the value of the emulator for \emph{eg\_gen}.
+
+I have converted the sample intervals into real time, by scaling down by the native sample
+rate of 49716~Hz.
+
+This gives a 2-parameter sampled function $(Time, Rate) \rightarrow Envelope$.
+
+For the attack phase in particular, this function is an exponential shape.
+I can find a decent approximation by fitting this function to:
+\begin{equation}
+E(t,r) = 1-\exp(-a b^{r+c} t)
+\end{equation}
+where $t$, $r$ are time and rate respectively, and $a$, $b$, $c$ are curve fitting constants
+shown in~\ref{tab:env-attack-fit}.
+
+\begin{table}
+\begin{center}
+\begin{tabular}{lr}
+\toprule
+a & 1.149780 \\
+b & 1.189578 \\
+c & -1.771204 \\
+\midrule
+R-square & 0.9956 \\
+RMSE & 0.01699 \\
+\bottomrule
+\end{tabular}
+\end{center}
+\caption{Attack phase approximation}\label{tab:env-attack-fit}
+\end{table}
+
+\subsection{Release phase}\label{sec:release-phase}
+
+By following exactly the same method as described in~\ref{sec:attack-phase}, I obtain a
+sampled function for the release phase.
+
+This one has linear shape and is approximated by the following function:
+\begin{equation}
+E(t,r) = 1-a b^{r+c} t
+\end{equation}
+where $t$, $r$ are time and rate respectively, and $a$, $b$, $c$ are curve fitting constants
+shown in~\ref{tab:env-release-fit}.
+
+\begin{table}
+\begin{center}
+\begin{tabular}{lr}
+\toprule
+a & 0.010613 \\
+b & 1.185552 \\
+c & 1.013799 \\
+\midrule
+R-square & 0.9895 \\
+RMSE & 0.02902 \\
+\bottomrule
+\end{tabular}
+\end{center}
+\caption{Release phase approximation}\label{tab:env-release-fit}
+\end{table}
+
+\subsection{Estimating instrument durations}
+
+Given a FM instrument for OPL3, I am interested in determining two particular values.
+
+$t_{on}$ is defined as the duration for output amplitude to raise above or equal the target
+amplitude value $V_t$ after key-on.
+
+$t_{off}$ is defined as the duration for output amplitude to raise below or equal the target
+amplitude value $V_t$ after key-off.
+
+We have $E(t,r)$ as the envelope function defined over time and rate. In addition, I define
+$E'(t,r)$ as the adjusted envelope function, subtracting level modifiers from envelope $E(t,r)$.
+Level modifiers have been previously explained in~\ref{sec:env-generalities}, \ref{code:level-modifiers}.
+
+The total amplitude level at some time point can be explained in words, as the combined
+amplitude of all carriers under the AM modulation of their respective envelopes. In FM
+synthesis a modulator has little impact on overall signal level, which is why I consider
+only carriers to simplify.
+
+If $N$ is the number of carriers, $R_i$ is the effective rate of the $i^{th}$ carrier, and $W_i$
+is the RMS amplitude of the $i^{th}$ carrier's waveform, overall RMS level $V(t)$ is defined as:
+
+\begin{equation}
+  V(t) = \sqrt{\sum_{i=1}^{N} {(E'_i(t,R_i) W_i)}^2}
+  \label{eq:rms-overall}
+\end{equation}
+
+In order to determine the duration we want, we have to substitute $V(t)$ for our desired
+target level, and then solve for $t$.
+
+\subsection{Key-on duration}
+
+In order to solve~\ref{eq:rms-overall} we can use the analytical approach, but the
+exponential formula for attack makes this difficult.
+
+For a simple way to do it, we can repeatedly evaluate~\ref{eq:rms-overall}, and narrow
+down $t$ with the binary search method.
+
+With a range 0—10 for $t$ and 16 iterations, there is approximately a maximum
+absolute error of $1.5 \times 10^{-4}$.
+
+\subsection{Key-off duration}
+
+We can solve this analytically, by plugging $E'(t,r)$ in~\ref{eq:rms-overall}.
+
+To make the writing more concise, let's define $R'_i$ the slope of the $i^{th}$ carrier as
+$a \times b^{r_i+c}$, and $\hat{V_i}$ the starting point of the $i^{th}$ carrier as $Vs_i - Vm_i$, where
+$Vs_i$ is the sustain level and $Vm_i$ is the level modifier~\ref{sec:env-generalities}, \ref{code:level-modifiers}.
+
+This gives:
+
+\begin{align*}
+  V(t) = \sqrt{\sum_{i=1}^{N} {((\hat{V_i} - R'_i t) W_i)}^2} \\
+  V^2(t) = \sum_{i=1}^{N} {({R'_i}^2 W_i^2) t^2 - (2 {R'_i} \hat{V_i} W_i^2) t + \hat{V_i}^2 W_i^2}
+\end{align*}
+
+To determine $t$ we can have our direct answer by substituting $V(t)$ with the target level, and then
+solving roots of the quadratic polynomial:
+
+\begin{equation*}
+(\sum_{i=1}^{N} {{R'_i}^2 W_i^2}) t^2 + (\sum_{i=1}^{N} {- 2 {R'_i} \hat{V_i} W_i^2}) t + (\sum_{i=1}^{N} {\hat{V_i}^2 W_i^2}) - V^2(t)
+\end{equation*}
+
+%----------------------------------------------------------------------------------------
+%	REFERENCE LIST
+%----------------------------------------------------------------------------------------
+
+\begin{thebibliography}{99} % Bibliography - this is intentionally simple in this template
+
+\bibitem[Steffen Ohrendorf, 2014]{opl3analyzed}
+Steffen Ohrendorf. (2014).
+\newblock OPL3 analyzed.
+\newblock {\em \href{https://github.com/gtaylormb/opl3_fpga}{OPL3-FPGA}}
+
+\end{thebibliography}
+
+%----------------------------------------------------------------------------------------
+
+\end{document}
